@@ -35,28 +35,30 @@ class Indexer {
 
         await Promise.all(
             block.transactions.map(txHash => this.handleTransaction(txHash))
-        ).catch()
+        )
     }
 
     private async handleTransaction(txHash: string): Promise<Transaction | undefined> {
-        const tx = await this.provider.getTransaction(txHash)
+        try {
+            const tx = await this.provider.getTransaction(txHash)
 
-        if (!tx.from || !tx.to)
-            return
+            if (!tx?.from || !tx?.to)
+                return
 
-        const [from, to] = await Promise.all([
-            await this.createAccount(tx.from),
-            await this.createAccount(tx.to),
-        ])
+            const [from, to] = await Promise.all([
+                await this.createAccount(tx.from),
+                await this.createAccount(tx.to),
+            ])
 
-        const transaction = new Transaction()
-        transaction.from = from
-        transaction.to = to
-        transaction.hash = tx.hash
-        transaction.block = tx.blockNumber
-        transaction.chain = this.chain
+            const transaction = new Transaction()
+            transaction.from = from
+            transaction.to = to
+            transaction.hash = tx.hash
+            transaction.block = tx.blockNumber
+            transaction.chain = this.chain
 
-        return this.dataSource.manager.save(transaction)
+            return this.dataSource.manager.save(transaction)
+        } catch {}
     }
 
     private async createAccount(address: string): Promise<Account> {

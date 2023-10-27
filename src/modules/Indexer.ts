@@ -1,15 +1,9 @@
-// extract block transactions
-// decode the transactions
-// check if sender is EOA, if it isn't interrupt => not interested in contracts for now
-// store user transaction in a table o EOA transactions
-// the goal is to later analyze and check if EOAs are 
-// - doing multiple transactions in a short period of time
 import 'reflect-metadata'
 import { JsonRpcProvider } from "ethers";
-import { Chain } from './entity/Chain'
-import { Account } from './entity/Account'
-import { Transaction } from './entity/Transaction'
-import { AppDataSource } from './data-source';
+import { Chain } from '../entity/Chain'
+import { Account } from '../entity/Account'
+import { Transaction } from '../entity/Transaction'
+import { AppDataSource } from '../data-source';
 import { DataSource } from 'typeorm';
 
 class Indexer {
@@ -35,20 +29,20 @@ class Indexer {
 
         if (!block) {
             console.log('Blocknumber doesnt exist on the RPC yet')
+
             return 
         }
 
-        const transactionPromises = block.transactions.map(async txHash => {
-            this.handleTransaction(txHash)
-        })
-
-        await Promise.all(transactionPromises)
-
-        console.log('mined')
+        await Promise.all(
+            block.transactions.map(this.handleTransaction)
+        ).catch()
     }
 
-    private async handleTransaction(txHash: string): Promise<Transaction> {
+    private async handleTransaction(txHash: string): Promise<Transaction | undefined> {
         const tx = await this.provider.getTransaction(txHash)
+
+        if (!tx.from || !tx.to)
+            return
 
         const [from, to] = await Promise.all([
             await this.createAccount(tx.from),
@@ -69,9 +63,12 @@ class Indexer {
         const account = new Account()
         account.address = address
 
+        if (!address)
+            console.log('DOESNT HAVE ADDRESS ===> ', { address })
+
         await this.dataSource.manager.upsert(Account, account, {
             skipUpdateIfNoValuesChanged: true,
-            conflictPaths: ['address'],
+            conflictPaths: [],
         })
 
         return account
@@ -88,31 +85,12 @@ class Indexer {
         ethereum,
     ]
 
+    AppDataSource.driver.options.
+
     const dataSource = await AppDataSource.initialize()
 
+    // TODO: maybe arrow function can be removed and we can pass .save function directly to map
     await Promise.all(chains.map(chain => dataSource.manager.save(chain)))
     await new Indexer(ethereum).watch().catch(console.log)
 })()
 
-
-// import { AppDataSource } from "./data-source"
-// import { User } from "./entity/User"
-//
-// AppDataSource.initialize().then(async () => {
-//
-//     console.log("Inserting a new user into the database...")
-//     const user = new User()
-//     user.firstName = "Timber"
-//     user.lastName = "Saw"
-//     user.age = 25
-//     await AppDataSource.manager.save(user)
-//     console.log("Saved a new user with id: " + user.id)
-//
-//     console.log("Loading users from the database...")
-//     const users = await AppDataSource.manager.find(User)
-//     console.log("Loaded users: ", users)
-//
-//     console.log("Here you can setup and run express / fastify / any other framework.")
-//
-// }).catch(error => console.log(error))
-//

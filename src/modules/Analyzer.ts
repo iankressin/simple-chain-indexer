@@ -4,6 +4,12 @@ import { Account } from '../entity/Account';
 import { DataSource } from 'typeorm';
 import { group } from 'console';
 
+interface Group {
+    startBlock: number
+    endBlock: number
+    transactions: Transaction[]
+}
+
 /**
 * The main goal of this analysis is to find out if are there users doing a sequence of transactions frequently
 * For that we need to figure out the number of wallets that are doing more than one transaction in a defined period of time
@@ -20,7 +26,14 @@ export class Analyzer {
     public async report(): Promise<void> {
         const users = await this.getAllUsers()
 
-        const accountTransactions = await Promise.all(users.map(user => this.getAllTransactionsFromAccount(user.address)))
+        const accounts: Record<string, Group[]> = {}
+
+        await Promise.all(users.map(async account => {
+            const accountGroups = await this.getAllTransactionsFromAccount(account.address)
+
+            if(accountGroups.length)
+                accounts[account.address] = accountGroups
+        }))
     }
 
     private getAllUsers(): Promise<Account[]> {
@@ -39,19 +52,14 @@ export class Analyzer {
             .getMany()
         
 
-        console.log('Transactions: ', address, transactions.length)
+        return this.groupTransactionsByBlockOffset(transactions)
     }
 
     // Transactions separated in groups where the block number of a transaction needs to be within 10 blocks of one of other groups
     // If not, create a new group
     private groupTransactionsByBlockOffset(transactions: Transaction[]) {
         const defaultBlockOffset = 40 // ~ 10 minutes
-
-        const groups: {
-            startBlock: number
-            endBlock: number
-            transactions: Transaction[]
-        }[] = []
+        const groups: Group[] = []
 
         transactions.map(transaction => {
             const group = groups.find(group =>
@@ -68,7 +76,7 @@ export class Analyzer {
                 })
         })
 
-        console.log(groups)
+        return groups
     }
 
     private isInBetweenBlocks(block: number, start: number, end: number) {

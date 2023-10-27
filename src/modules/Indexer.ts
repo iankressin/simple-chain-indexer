@@ -34,7 +34,7 @@ class Indexer {
         }
 
         await Promise.all(
-            block.transactions.map(this.handleTransaction)
+            block.transactions.map(txHash => this.handleTransaction(txHash))
         ).catch()
     }
 
@@ -84,8 +84,6 @@ class Indexer {
     const chains = [
         ethereum,
     ]
-
-    AppDataSource.driver.options.
 
     const dataSource = await AppDataSource.initialize()
 

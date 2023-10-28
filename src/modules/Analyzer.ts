@@ -2,13 +2,14 @@ import { AppDataSource } from '../data-source';
 import { Transaction } from '../entity/Transaction';
 import { Account } from '../entity/Account';
 import { DataSource } from 'typeorm';
-import { group } from 'console';
 
 interface Group {
     startBlock: number
     endBlock: number
     transactions: Transaction[]
 }
+
+type AccountGroups = Record<string, Group[]>
 
 /**
 * The main goal of this analysis is to find out if are there users doing a sequence of transactions frequently
@@ -26,7 +27,7 @@ export class Analyzer {
     public async report(): Promise<void> {
         const users = await this.getAllUsers()
 
-        const accounts: Record<string, Group[]> = {}
+        const accounts: AccountGroups = {}
 
         await Promise.all(users.map(async account => {
             const accountGroups = await this.getAllTransactionsFromAccount(account.address)
@@ -34,6 +35,39 @@ export class Analyzer {
             if(accountGroups.length)
                 accounts[account.address] = accountGroups
         }))
+
+        const averageGroupsPerAccount = this.getAvarageGroupsPerAccount(accounts)
+        const mode = this.getGroupsMode(accounts)
+
+        console.log({
+            averageGroupsPerAccount,
+            mode,
+        })
+    }
+
+    private getGroupsMode(accountGroups: AccountGroups) {
+        const mode = Object.keys(accountGroups).reduce((acc, key) => {
+            const groupsLength = accountGroups[key].length
+
+            acc[groupsLength] = acc[groupsLength] + 1
+
+            return acc
+        }, {} as Record<number, number>)
+
+        return mode
+    }
+
+    private getMostUsedContracts() {
+        const mostUsedContract = this.dataSource.getRepository(Transaction)
+            .
+    }
+
+    private getAvarageGroupsPerAccount(accounts: AccountGroups): number {
+        const keys = Object.keys(accounts)
+        const totalGroups = keys.reduce((acc, key) => acc + accounts[key].length, 0)
+        const averageGroupsPerAccount = totalGroups / keys.length
+
+        return averageGroupsPerAccount
     }
 
     private getAllUsers(): Promise<Account[]> {

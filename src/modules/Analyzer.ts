@@ -3,19 +3,19 @@ import { Transaction } from '../entity/Transaction';
 import { Account } from '../entity/Account';
 import { DataSource } from 'typeorm';
 
-interface Group {
+interface Batch {
     startBlock: number
     endBlock: number
     transactions: Transaction[]
 }
 
-type AccountGroups = Record<string, Group[]>
+type AccountBatches = Record<string, Batch[]>
 
 /**
 * The main goal of this analysis is to find out if are there users doing a sequence of transactions frequently
 * For that we need to figure out the number of wallets that are doing more than one transaction in a defined period of time
 *
-* Something like: select all transactions, group them by wallet, and group them by *10 minutes* timeframes, 
+* Something like: select all transactions, batch them by wallet, and batch them by *10 minutes* timeframes, 
 */
 export class Analyzer {
     private dataSource: DataSource
@@ -27,47 +27,78 @@ export class Analyzer {
     public async report(): Promise<void> {
         const users = await this.getAllUsers()
 
-        const accounts: AccountGroups = {}
+        const accounts: AccountBatches = {}
 
         await Promise.all(users.map(async account => {
-            const accountGroups = await this.getAllTransactionsFromAccount(account.address)
+            const accountBatches = await this.getAllTransactionsFromAccount(account.address)
 
-            if(accountGroups.length)
-                accounts[account.address] = accountGroups
+            if(accountBatches.length)
+                accounts[account.address] = accountBatches
         }))
 
-        const averageGroupsPerAccount = this.getAvarageGroupsPerAccount(accounts)
-        const mode = this.getGroupsMode(accounts)
+        const averageTransactionsByBatch = this.getAverageTransactionPerBatch(accounts)
+        const transactionsInBatchMode = this.getBatchesModeWithMoreThanOneTransaction(accounts)
 
         console.log({
-            averageGroupsPerAccount,
-            mode,
+            averageTransactionsByBatch,
+            transactionsInBatchMode,
         })
     }
 
-    private getGroupsMode(accountGroups: AccountGroups) {
-        const mode = Object.keys(accountGroups).reduce((acc, key) => {
-            const groupsLength = accountGroups[key].length
+    private getBatchesModeWithMoreThanOneTransaction(accountBatches: AccountBatches) {
+        // {
+        //  '0x1..': [
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //  ],
+        //  '0x2..': [
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //  ]
+        //  '0x3..': [
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //      { start, end, txs }
+        //  ]
+        // }
 
-            acc[groupsLength] = acc[groupsLength] + 1
 
-            return acc
-        }, {} as Record<number, number>)
+        const mode:  Record<number, number> = {}
+
+        Object.keys(accountBatches).map(key => {
+            accountBatches[key].map(batch => { 
+                mode[batch.transactions.length] = mode[batch.transactions.length] 
+                    ? Number(mode[batch.transactions.length]) + 1
+                    : 1 
+            })
+        }, )
 
         return mode
     }
 
-    private getMostUsedContracts() {
-        const mostUsedContract = this.dataSource.getRepository(Transaction)
-            .
-    }
+    private getAccountWithMostBatches() {}
 
-    private getAvarageGroupsPerAccount(accounts: AccountGroups): number {
+    private getMostUsedContracts() {}
+
+    private getAverageTransactionPerBatch(accounts: AccountBatches): number {
         const keys = Object.keys(accounts)
-        const totalGroups = keys.reduce((acc, key) => acc + accounts[key].length, 0)
-        const averageGroupsPerAccount = totalGroups / keys.length
+        const totalBatches = keys.reduce((acc, key) => acc + accounts[key].length, 0)
+        const averageBatchesPerAccount = totalBatches / keys.length
 
-        return averageGroupsPerAccount
+        keys.reduce((acc, key) => {
+            const totalAccountBatches = accounts[key].length
+
+            if (!totalAccountBatches)
+                return acc
+
+            const totalTransactions = accounts[key].reduce((acc, batch)=> acc + batch.transactions.length, 0)
+
+            return acc + totalTransactions / totalAccountBatches 
+        }, 0)
+
+        return averageBatchesPerAccount
     }
 
     private getAllUsers(): Promise<Account[]> {
@@ -86,31 +117,31 @@ export class Analyzer {
             .getMany()
         
 
-        return this.groupTransactionsByBlockOffset(transactions)
+        return this.batchTransactionsByBlockOffset(transactions)
     }
 
-    // Transactions separated in groups where the block number of a transaction needs to be within 10 blocks of one of other groups
-    // If not, create a new group
-    private groupTransactionsByBlockOffset(transactions: Transaction[]) {
-        const defaultBlockOffset = 40 // ~ 10 minutes
-        const groups: Group[] = []
+    // Transactions separated in batches where the block number of a transaction needs to be within 10 blocks of one of other batches
+    // If not, create a new batch
+    private batchTransactionsByBlockOffset(transactions: Transaction[]) {
+        const defaultBlockOffset = 20 // ~ 4 minutes
+        const batches: Batch[] = []
 
         transactions.map(transaction => {
-            const group = groups.find(group =>
-                this.isInBetweenBlocks(transaction.block, group.startBlock, group.endBlock)
+            const batch = batches.find(batch =>
+                this.isInBetweenBlocks(transaction.block, batch.startBlock, batch.endBlock)
             )
 
-            if (group)
-                group.transactions.push(transaction)
+            if (batch)
+                batch.transactions.push(transaction)
             else
-                groups.push({
+                batches.push({
                     startBlock: transaction.block,
                     endBlock: transaction.block + defaultBlockOffset,
                     transactions: [transaction],
                 })
         })
 
-        return groups
+        return batches
     }
 
     private isInBetweenBlocks(block: number, start: number, end: number) {

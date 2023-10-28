@@ -11,7 +11,7 @@ export const AppDataSource = new DataSource({
     password: "paipa",
     database: "indexer",
     synchronize: true,
-    logging: true,
+    logging: false,
     entities: [Account, Transaction, Chain],
     migrations: [],
     subscribers: [],

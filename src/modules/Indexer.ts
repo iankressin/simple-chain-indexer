@@ -42,7 +42,7 @@ class Indexer {
         try {
             const tx = await this.provider.getTransaction(txHash)
 
-            if (!tx?.from || !tx?.to)
+            if (!tx?.from || !tx?.to || !tx?.blockNumber)
                 return
 
             const [from, to] = await Promise.all([

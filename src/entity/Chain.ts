@@ -1,4 +1,3 @@
-
 import { Entity, Column, PrimaryColumn, Unique } from "typeorm";
 
 @Entity()
@@ -12,4 +11,10 @@ export class Chain {
 
     @Column()
     rpc: string
+
+    @Column({
+        type: 'double',
+        unsigned: true,
+    })
+    blocktime: number
 }

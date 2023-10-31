@@ -2,6 +2,8 @@ import { AppDataSource } from '../data-source';
 import { Transaction } from '../entity/Transaction';
 import { Account } from '../entity/Account';
 import { DataSource } from 'typeorm';
+import { Chain } from '../entity/Chain';
+import { ethers, JsonRpcProvider } from 'ethers';
 
 interface Batch {
     startBlock: number
@@ -19,52 +21,45 @@ type AccountBatches = Record<string, Batch[]>
 */
 export class Analyzer {
     private dataSource: DataSource
+    private chain: Chain
 
     constructor(dataSource: DataSource) {
         this.dataSource = dataSource
     }
 
     public async report(): Promise<void> {
-        const users = await this.getAllUsers()
+        const [accounts, chains] = await Promise.all([
+            this.getAllAccounts(),
+            this.getAllChains(),
+        ])
 
-        const accounts: AccountBatches = {}
+        for (const chain of chains) {
+            const accountBatches: AccountBatches = {}
 
-        await Promise.all(users.map(async account => {
-            const accountBatches = await this.getAllTransactionsFromAccount(account.address)
+            await Promise.all(accounts.map(async account => {
+                const batches = await this.getAllTransactionsFromAccount(account.address, chain)
 
-            if(accountBatches.length)
-                accounts[account.address] = accountBatches
-        }))
+                if(batches.length)
+                    accountBatches[account.address] = batches
+            }))
 
-        const averageTransactionsByBatch = this.getAverageTransactionPerBatch(accounts)
-        const transactionsInBatchMode = this.getBatchesModeWithMoreThanOneTransaction(accounts)
+            const averageTransactionsByBatch = this.getAverageTransactionPerBatch(accountBatches)
+            const transactionsInBatchMode = this.getBatchesModeWithMoreThanOneTransaction(accountBatches)
+            const mostUsedContracts = await this.getMostUsedContracts(chain)
 
-        console.log({
-            averageTransactionsByBatch,
-            transactionsInBatchMode,
-        })
+            console.log(
+                `==================== CHAIN: ${ chain.name } ====================`,
+                {
+                    averageTransactionsByBatch,
+                    transactionsInBatchMode,
+                    mostUsedContracts,
+                },
+                '========================== END =========================='
+            )
+        }
     }
 
     private getBatchesModeWithMoreThanOneTransaction(accountBatches: AccountBatches) {
-        // {
-        //  '0x1..': [
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //  ],
-        //  '0x2..': [
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //  ]
-        //  '0x3..': [
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //      { start, end, txs }
-        //  ]
-        // }
-
-
         const mode:  Record<number, number> = {}
 
         Object.keys(accountBatches).map(key => {
@@ -80,7 +75,31 @@ export class Analyzer {
 
     private getAccountWithMostBatches() {}
 
-    private getMostUsedContracts() {}
+    // TODO: add contract name
+    private async getMostUsedContracts(chain: Chain) {
+        const provider = new JsonRpcProvider(chain.rpc)
+        const contracts = await this.dataSource.getRepository(Transaction)
+            .createQueryBuilder("transaction")
+            .select("transaction.to")
+            .addSelect("COUNT(*)", "count")
+            .where("transaction.chain = :chain", { chain: chain.id })
+            .groupBy("transaction.to")
+            .orderBy("count", "DESC")
+            .limit(20)
+            .getRawMany();
+
+        return (await Promise.all(contracts.map(async contract => {
+           const code = await provider.getCode(contract.toAddress) 
+
+           if (code === '0x') {
+               console.log('not contract')
+
+               return
+           }
+
+            return contract
+        }))).filter(c => !!c)
+    }
 
     private getAverageTransactionPerBatch(accounts: AccountBatches): number {
         const keys = Object.keys(accounts)
@@ -101,29 +120,39 @@ export class Analyzer {
         return averageBatchesPerAccount
     }
 
-    private getAllUsers(): Promise<Account[]> {
+    private getAllAccounts(): Promise<Account[]> {
          return this.dataSource.getRepository(Account)
             .createQueryBuilder('account')
             .select()
             .getMany()
     }
 
-    private async getAllTransactionsFromAccount(address: string)/*: Promise<Record<string, Transaction[][]>>*/ {
+    private async getAllChains() {
+        return this.dataSource.getRepository(Chain)
+        .createQueryBuilder('chain')
+        .select()
+        .getMany()
+    }
+
+    private async getAllTransactionsFromAccount(address: string, chain: Chain) {
         const transactions = await this.dataSource.getRepository(Transaction)
             .createQueryBuilder('transaction')
             .select()
             .where('transaction.from = :from', { from: address })
+            .andWhere('transaction.chain = :chain', { chain: chain.id })
             .orderBy('transaction.block')
             .getMany()
         
 
-        return this.batchTransactionsByBlockOffset(transactions)
+        return this.batchTransactionsByBlockOffset(transactions, chain.blocktime)
     }
+
 
     // Transactions separated in batches where the block number of a transaction needs to be within 10 blocks of one of other batches
     // If not, create a new batch
-    private batchTransactionsByBlockOffset(transactions: Transaction[]) {
-        const defaultBlockOffset = 20 // ~ 4 minutes
+    private batchTransactionsByBlockOffset(transactions: Transaction[], blocktime: number) {
+        const timeToAnalyze = 5 * 60 // 5 minutes
+        const defaultBlockOffset = timeToAnalyze / blocktime
         const batches: Batch[] = []
 
         transactions.map(transaction => {

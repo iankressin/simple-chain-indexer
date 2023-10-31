@@ -25,17 +25,19 @@ class Indexer {
     }
 
     private async handleBlock(blockNumber: number) {
-        const block = await this.provider.getBlock(blockNumber)
+        try {
+            const block = await this.provider.getBlock(blockNumber)
 
-        if (!block) {
-            console.log('Blocknumber doesnt exist on the RPC yet')
+            if (!block) {
+                console.log('Blocknumber doesnt exist on the RPC yet')
 
-            return 
-        }
+                return 
+            }
 
-        await Promise.all(
-            block.transactions.map(txHash => this.handleTransaction(txHash))
-        )
+            await Promise.all(
+                block.transactions.map(txHash => this.handleTransaction(txHash))
+            )
+        } catch {}
     }
 
     private async handleTransaction(txHash: string): Promise<Transaction | undefined> {
@@ -82,15 +84,44 @@ class Indexer {
     ethereum.name = 'Ethereum'
     ethereum.id = 1
     ethereum.rpc = 'https://rpc.ankr.com/eth'
+    ethereum.blocktime = 12
+
+    const bsc = new Chain()
+    bsc.name = 'BNB Chain'
+    bsc.id = 56
+    bsc.rpc = 'https://rpc.ankr.com/bsc'
+    bsc.blocktime = 3
+
+    const arb = new Chain()
+    arb.name = 'Arbitrum'
+    arb.id = 42161
+    arb.rpc = 'https://rpc.ankr.com/arbitrum'
+    arb.blocktime = 0.2
+
+    const op = new Chain()
+    op.name = 'Optimism'
+    op.id = 10
+    op.rpc = 'https://rpc.ankr.com/optimism'
+    op.blocktime = 2
+
+    const poly = new Chain()
+    poly.name = 'Polygon'
+    poly.id = 137
+    poly.rpc = 'https://rpc.ankr.com/polygon'
+    poly.blocktime = 2
 
     const chains = [
         ethereum,
+        bsc,
+        arb,
+        op,
+        poly
     ]
 
     const dataSource = await AppDataSource.initialize()
 
     // TODO: maybe arrow function can be removed and we can pass .save function directly to map
     await Promise.all(chains.map(chain => dataSource.manager.save(chain)))
-    await new Indexer(ethereum).watch().catch(console.log)
+    await Promise.all(chains.map(chain => new Indexer(chain).watch().catch(console.log)))
 })()
 

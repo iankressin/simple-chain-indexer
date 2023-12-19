@@ -4,7 +4,7 @@
 
 This repo tries to undestand the behavior of EOA on various EVM chains regarding the execution of batches of trasactions.
 The `Analyzer` generates the following data: 
-- Average amount of transactions executed by a single wallet in a given time frame and the 
+- Average amount of transactions executed by a single wallet in a given time frame
 - [Mode](https://en.wikipedia.org/wiki/Mode_(statistics)) of batches of transactions
 - Most used contracts by chain
 
